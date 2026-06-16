@@ -7,6 +7,7 @@ let allTemplates = {
 
 let currentMode = 'local';
 let activeTasks = 0;
+let selectedFile = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     loadTemplates();
@@ -22,6 +23,8 @@ function setupEventListeners() {
     const localModeBtn = document.getElementById('localModeBtn');
     const onlineModeBtn = document.getElementById('onlineModeBtn');
     const apiKeyInput = document.getElementById('apiKeyInput');
+    const fileInput = document.getElementById('fileInput');
+    const removeFileBtn = document.getElementById('removeFileBtn');
 
     shutdownBtn.addEventListener('click', () => {
         if (confirm('¿Tu pagas el servidor o porque me quieres apagar?')) {
@@ -54,6 +57,30 @@ function setupEventListeners() {
     apiKeyInput.addEventListener('input', (e) => {
         localStorage.setItem('kofu_api_key', e.target.value);
     });
+
+    // File upload listeners
+    fileInput.addEventListener('change', handleFileSelect);
+    removeFileBtn.addEventListener('click', removeSelectedFile);
+}
+
+function handleFileSelect(e) {
+    if (e.target.files && e.target.files[0]) {
+        selectedFile = e.target.files[0];
+        const filePreview = document.getElementById('filePreview');
+        const fileName = document.getElementById('fileName');
+        
+        fileName.textContent = selectedFile.name;
+        filePreview.style.display = 'block';
+    }
+}
+
+function removeSelectedFile() {
+    selectedFile = null;
+    const fileInput = document.getElementById('fileInput');
+    const filePreview = document.getElementById('filePreview');
+    
+    fileInput.value = '';
+    filePreview.style.display = 'none';
 }
 
 function switchMode(mode) {
@@ -200,7 +227,7 @@ async function sendMessage() {
     const messageInput = document.getElementById('messageInput');
     const message = messageInput.value.trim();
 
-    if (!message) return;
+    if (!message && !selectedFile) return;
 
     // Check for Online mode requirements
     if (currentMode === 'online') {
@@ -211,7 +238,12 @@ async function sendMessage() {
         }
     }
 
-    addMessage(message, 'user');
+    // Display user message
+    if (message) {
+        addMessage(message, 'user');
+    } else if (selectedFile) {
+        addMessage(`He subido el archivo: ${selectedFile.name}`, 'user');
+    }
     messageInput.value = '';
     autoResize();
 
@@ -227,7 +259,13 @@ async function sendMessage() {
 
         let response;
 
-        if (docType && (message.toLowerCase().includes('crear') || message.toLowerCase().includes('hacer'))) {
+        if (selectedFile) {
+            if (docType) {
+                response = await createDocumentFromFile(selectedFile, docType, template);
+            } else {
+                response = await processFile(selectedFile);
+            }
+        } else if (docType && (message.toLowerCase().includes('crear') || message.toLowerCase().includes('hacer'))) {
             response = await createDocument(message, docType, template);
         } else if (currentMode === 'online' && isResearchQuery(message)) {
             response = await researchTopic(message);
@@ -237,13 +275,81 @@ async function sendMessage() {
 
         removeTypingIndicator();
         addMessage(response, 'ai');
+        
+        // Reset file selection
+        removeSelectedFile();
     } catch (error) {
         removeTypingIndicator();
-        addMessage('La ia no esta lista para usar, Intenta de nuevo mas tarde o vea el manual de errores.', 'ai', true);
+        if (error.message && (error.message.includes('seguridad') || error.message.includes('bloqueada'))) {
+            addMessage(error.message, 'ai', true);
+        } else {
+            addMessage('La ia no esta lista para usar, Intenta de nuevo mas tarde o vea el manual de errores', 'ai', true);
+        }
         console.error('Error:', error);
     } finally {
         sendBtn.disabled = false;
         decrementTaskCounter();
+    }
+}
+
+async function processFile(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_URL}/upload`, {
+        method: 'POST',
+        body: formData
+    });
+
+    if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Error al procesar el archivo');
+    }
+
+    const data = await response.json();
+    if (data.success) {
+        let result = `✅ Archivo "${data.filename}" procesado con éxito!\n\n`;
+        result += `📄 Contenido extraído:\n\n`;
+        result += data.text_content.substring(0, 1000);
+        if (data.text_content.length > 1000) {
+            result += '\n... (contenido truncado)';
+        }
+        return result;
+    } else {
+        throw new Error(data.error);
+    }
+}
+
+async function createDocumentFromFile(file, docType, template) {
+    const endpoint = docType === 'word' ? '/create-document-from-file' : '/create-powerpoint-from-file';
+    const filename = docType === 'word' ? 'documento_kofu.docx' : 'presentacion_kofu.pptx';
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    if (template) formData.append('template', template);
+    formData.append('filename', filename);
+    if (docType === 'word') {
+        formData.append('style', 'professional');
+    } else {
+        formData.append('theme', 'professional');
+    }
+
+    const response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'POST',
+        body: formData
+    });
+
+    if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Error al crear el documento desde el archivo');
+    }
+
+    const data = await response.json();
+
+    if (data.success) {
+        return `He creado tu ${docType === 'word' ? 'documento de Word' : 'presentación de PowerPoint'} desde el archivo "${data.source_file}" con éxito! 🎉\n\nArchivo guardado en: ${data.file_path}\n\nPlantilla usada: ${template || 'Ninguna (predeterminada)'}`;
+    } else {
+        throw new Error(data.error);
     }
 }
 
@@ -274,6 +380,11 @@ async function chatWithAI(message) {
         body: JSON.stringify({ message, show_thinking: false })
     });
 
+    if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Error al comunicarse con el servidor');
+    }
+
     const data = await response.json();
     return data.response;
 }
@@ -281,34 +392,35 @@ async function chatWithAI(message) {
 async function researchTopic(message) {
     const topic = extractTopic(message);
 
-    try {
-        const searchResponse = await fetch(`${API_URL}/search`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: topic, num_results: 5 })
+    const searchResponse = await fetch(`${API_URL}/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: topic, num_results: 5 })
+    });
+
+    if (!searchResponse.ok) {
+        const data = await searchResponse.json();
+        throw new Error(data.error || 'Error al buscar información');
+    }
+
+    const searchData = await searchResponse.json();
+
+    if (searchData.results && searchData.results.length > 0) {
+        let summary = `📚 Resultados de la búsqueda sobre: "${topic}"\n\n`;
+
+        searchData.results.forEach((result, index) => {
+            summary += `🔹 ${index + 1}. ${result.title}\n`;
+            if (result.content) {
+                summary += `   ℹ️ ${result.content.substring(0, 200)}...\n`;
+            }
+            summary += `   🔗 ${result.url}\n`;
+            if (result.source) {
+                summary += `   📍 Fuente: ${result.source}\n`;
+            }
+            summary += '\n';
         });
 
-        const searchData = await searchResponse.json();
-
-        if (searchData.results && searchData.results.length > 0) {
-            let summary = `📚 Resultados de la búsqueda sobre: "${topic}"\n\n`;
-
-            searchData.results.forEach((result, index) => {
-                summary += `🔹 ${index + 1}. ${result.title}\n`;
-                if (result.content) {
-                    summary += `   ℹ️ ${result.content.substring(0, 200)}...\n`;
-                }
-                summary += `   🔗 ${result.url}\n`;
-                if (result.source) {
-                    summary += `   📍 Fuente: ${result.source}\n`;
-                }
-                summary += '\n';
-            });
-
-            return summary;
-        }
-    } catch (error) {
-        console.error('Error en la búsqueda:', error);
+        return summary;
     }
 
     return `No se encontró información sobre "${topic}".`;
@@ -327,6 +439,11 @@ async function createDocument(topic, docType, template) {
             filename: filename
         })
     });
+
+    if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Error al crear el documento');
+    }
 
     const data = await response.json();
 

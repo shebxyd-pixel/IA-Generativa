@@ -5,6 +5,9 @@ from .reasoning_engine import ReasoningEngine, ChainOfThought
 from .mcp_integration import MCPServer
 from .external_ai_api import ExternalAIAPI
 from .typo_corrector import TypoCorrector
+from .sanitizacion import SanitizadorEntrada
+from .ollama_engine import HybridReasoningEngine
+from .file_processor import FileProcessor
 
 __all__ = [
     "AIAssistant",
@@ -14,5 +17,8 @@ __all__ = [
     "ChainOfThought",
     "MCPServer",
     "ExternalAIAPI",
-    "TypoCorrector"
+    "TypoCorrector",
+    "SanitizadorEntrada",
+    "HybridReasoningEngine",
+    "FileProcessor"
 ]

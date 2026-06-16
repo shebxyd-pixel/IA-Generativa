@@ -1,5 +1,6 @@
 import sys
 import os
+import io
 
 try:
     from flask import Flask, request, jsonify
@@ -27,7 +28,7 @@ except ImportError as e:
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 try:
-    from src import AIAssistant, TypoCorrector, ExternalAIAPI, OfficeAgent
+    from src import AIAssistant, TypoCorrector, ExternalAIAPI, OfficeAgent, SanitizadorEntrada, FileProcessor
     from src.web_researcher import WebResearcher
 except ImportError as e:
     print("=" * 50)
@@ -45,16 +46,24 @@ except ImportError as e:
 app = Flask(__name__)
 CORS(app)
 
-assistant = AIAssistant()
+BASE_DIR = os.path.join(os.path.dirname(__file__), '..')
+
+# Cargar variables de entorno
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
+use_ollama = os.getenv("USE_OLLAMA", "true").lower() == "true"
+assistant = AIAssistant(use_ollama=use_ollama)
 typo_corrector = TypoCorrector()
 external_ai = ExternalAIAPI()
 office_agent = OfficeAgent()
 web_researcher = WebResearcher()
-
-BASE_DIR = os.path.join(os.path.dirname(__file__), '..')
+sanitizador = SanitizadorEntrada()
+file_processor = FileProcessor()
 
 if not os.path.exists(os.path.join(BASE_DIR, "output")):
     os.makedirs(os.path.join(BASE_DIR, "output"))
+if not os.path.exists(os.path.join(BASE_DIR, "temp_uploads")):
+    os.makedirs(os.path.join(BASE_DIR, "temp_uploads"))
 
 
 @app.route('/')
@@ -133,18 +142,23 @@ def chat():
         data = request.json
         message = data.get('message', '')
         show_thinking = data.get('show_thinking', False)
-        
+
+        # SANITIZAR ENTRADA
+        if not sanitizador.es_entrada_segura(message):
+            return jsonify({"error": "❌ Entrada bloqueada por seguridad: contiene código o contenido no permitido"}), 400
+        message = sanitizador.limpiar_texto(message)
+
         if not message:
-            return jsonify({'error': 'No se proporcionó mensaje'}), 400
-        
+            return jsonify({'error': 'No se proporcionó mensaje válido'}), 400
+
         corrected_message = typo_corrector.correct_text(message)
         response, thinking_steps = assistant.process_request(corrected_message, show_thinking=show_thinking)
-        
+
         thinking_process = [
-            {'step': step.step_num, 'thought': step.thought, 'evidence': step.evidence}
+            {"step": step.step_num, "thought": step.thought, "evidence": step.evidence}
             for step in thinking_steps
         ]
-        
+
         return jsonify({
             'original_message': message,
             'corrected_message': corrected_message,
@@ -152,7 +166,6 @@ def chat():
             'thinking_process': thinking_process,
             'thinking_chain': assistant.get_thinking_chain()
         })
-    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -164,18 +177,22 @@ def search():
         query = data.get('query', '')
         num_results = data.get('num_results', 5)
         engine = data.get('engine', 'duckduckgo')
-        
+
+        # SANITIZAR ENTRADA
+        if not sanitizador.es_entrada_segura(query):
+            return jsonify({"error": "❌ Entrada bloqueada por seguridad: contiene código o contenido no permitido"}), 400
+        query = sanitizador.limpiar_texto(query)
+
         if not query:
-            return jsonify({'error': 'No se proporcionó consulta de búsqueda'}), 400
-        
+            return jsonify({'error': 'No se proporcionó consulta de búsqueda válida'}), 400
+
         results = web_researcher.search_web(query, num_results=num_results, engine=engine)
-        
+
         return jsonify({
             'query': query,
             'results': results,
             'total': len(results)
         })
-    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -185,17 +202,21 @@ def research():
     try:
         data = request.json
         topic = data.get('topic', '')
-        
+
+        # SANITIZAR ENTRADA
+        if not sanitizador.es_entrada_segura(topic):
+            return jsonify({"error": "❌ Entrada bloqueada por seguridad: contiene código o contenido no permitido"}), 400
+        topic = sanitizador.limpiar_texto(topic)
+
         if not topic:
-            return jsonify({'error': 'No se proporcionó tema'}), 400
-        
+            return jsonify({'error': 'No se proporcionó tema válido'}), 400
+
         summary = assistant.research_topic(topic)
-        
+
         return jsonify({
             'topic': topic,
             'summary': summary
         })
-    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -206,27 +227,34 @@ def create_powerpoint():
         data = request.json
         topic = data.get('topic', 'Presentacion')
         theme = data.get('theme', 'professional')
-        filename = data.get('filename', 'presentacion.pptx')
+        filename = data.get('filename', 'presentacion_kofu.pptx')
         template = data.get('template', None)
-        
+
+        # SANITIZAR ENTRADAS
+        if not sanitizador.es_entrada_segura(topic):
+            return jsonify({"error": "❌ Entrada bloqueada por seguridad: contiene código o contenido no permitido"}), 400
+        topic = sanitizador.limpiar_texto(topic)
+        filename = sanitizador.sanitizar_nombre_archivo(filename)
+
         template_path = None
         if template:
+            template = sanitizador.sanitizar_nombre_archivo(template)
             template_path = os.path.join(BASE_DIR, 'templates/powerpoint', template)
-        
+
         output_path = os.path.join(BASE_DIR, 'output', filename)
-        
+
         slides_data = [
             {"title": topic, "layout": 0, "subtitle": "Generado por Kofu", "background": True},
             {"title": "Contenido", "layout": 1, "text": f"Presentacion sobre {topic} creada automaticamente.", "background": True}
         ]
-        
+
         result = office_agent.create_powerpoint(
             output_path,
             slides_data,
             template_path=template_path,
             theme=theme
         )
-        
+
         return jsonify({
             'success': True,
             'file_path': result,
@@ -234,7 +262,6 @@ def create_powerpoint():
             'theme': theme,
             'template': template
         })
-    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -245,27 +272,34 @@ def create_document():
         data = request.json
         topic = data.get('topic', 'Documento')
         style = data.get('style', 'professional')
-        filename = data.get('filename', 'documento.docx')
+        filename = data.get('filename', 'documento_kofu.docx')
         template = data.get('template', None)
-        
+
+        # SANITIZAR ENTRADAS
+        if not sanitizador.es_entrada_segura(topic):
+            return jsonify({"error": "❌ Entrada bloqueada por seguridad: contiene código o contenido no permitido"}), 400
+        topic = sanitizador.limpiar_texto(topic)
+        filename = sanitizador.sanitizar_nombre_archivo(filename)
+
         template_path = None
         if template:
+            template = sanitizador.sanitizar_nombre_archivo(template)
             template_path = os.path.join(BASE_DIR, 'templates/word', template)
-        
+
         output_path = os.path.join(BASE_DIR, 'output', filename)
-        
+
         content_data = [
             {"type": "heading", "text": topic, "level": 1},
             {"type": "paragraph", "text": f"Documento sobre {topic} generado automaticamente por Kofu."}
         ]
-        
+
         result = office_agent.create_word_document(
             output_path,
             content_data,
             template_path=template_path,
             style=style
         )
-        
+
         return jsonify({
             'success': True,
             'file_path': result,
@@ -273,7 +307,6 @@ def create_document():
             'style': style,
             'template': template
         })
-    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -289,6 +322,151 @@ def office_tips():
             'tips': tips
         })
     
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+        
+        if not file_processor.is_supported_file(file.filename):
+            return jsonify({'error': 'Unsupported file type'}), 400
+        
+        # Sanitize filename
+        filename = sanitizador.sanitizar_nombre_archivo(file.filename)
+        
+        # Read file stream
+        file_stream = io.BytesIO(file.read())
+        
+        # Process the file
+        result = file_processor.process_file(file_stream, filename)
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/create-document-from-file', methods=['POST'])
+def create_document_from_file():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+        
+        file = request.files['file']
+        style = request.form.get('style', 'professional')
+        filename = request.form.get('filename', 'documento_kofu.docx')
+        template = request.form.get('template', None)
+        
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+        
+        if not file_processor.is_supported_file(file.filename):
+            return jsonify({'error': 'Unsupported file type'}), 400
+        
+        # Sanitize inputs
+        filename = sanitizador.sanitizar_nombre_archivo(filename)
+        
+        # Process the file to get content
+        file_stream = io.BytesIO(file.read())
+        process_result = file_processor.process_file(file_stream, file.filename)
+        
+        if not process_result['success']:
+            return jsonify({'error': process_result['error']}), 400
+        
+        # Create document from processed content
+        content = process_result['text_content']
+        output_path = os.path.join(BASE_DIR, 'output', filename)
+        
+        template_path = None
+        if template:
+            template = sanitizador.sanitizar_nombre_archivo(template)
+            template_path = os.path.join(BASE_DIR, 'templates/word', template)
+        
+        # Build content data
+        content_data = [
+            {"type": "heading", "text": f"Documento basado en {process_result['filename']}", "level": 1},
+            {"type": "paragraph", "text": content}
+        ]
+        
+        result = office_agent.create_word_document(
+            output_path,
+            content_data,
+            template_path=template_path,
+            style=style
+        )
+        
+        return jsonify({
+            'success': True,
+            'file_path': result,
+            'source_file': process_result['filename'],
+            'style': style
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/create-powerpoint-from-file', methods=['POST'])
+def create_powerpoint_from_file():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+        
+        file = request.files['file']
+        theme = request.form.get('theme', 'professional')
+        filename = request.form.get('filename', 'presentacion_kofu.pptx')
+        template = request.form.get('template', None)
+        
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+        
+        if not file_processor.is_supported_file(file.filename):
+            return jsonify({'error': 'Unsupported file type'}), 400
+        
+        # Sanitize inputs
+        filename = sanitizador.sanitizar_nombre_archivo(filename)
+        
+        # Process the file to get content
+        file_stream = io.BytesIO(file.read())
+        process_result = file_processor.process_file(file_stream, file.filename)
+        
+        if not process_result['success']:
+            return jsonify({'error': process_result['error']}), 400
+        
+        # Create presentation from processed content
+        content = process_result['text_content']
+        output_path = os.path.join(BASE_DIR, 'output', filename)
+        
+        template_path = None
+        if template:
+            template = sanitizador.sanitizar_nombre_archivo(template)
+            template_path = os.path.join(BASE_DIR, 'templates/powerpoint', template)
+        
+        # Build slides data
+        slides_data = [
+            {"title": f"Presentación basada en {process_result['filename']}", "layout": 0, "subtitle": "Generado por Kofu", "background": True},
+            {"title": "Contenido", "layout": 1, "text": content[:500] + "..." if len(content) > 500 else content, "background": True}
+        ]
+        
+        result = office_agent.create_powerpoint(
+            output_path,
+            slides_data,
+            template_path=template_path,
+            theme=theme
+        )
+        
+        return jsonify({
+            'success': True,
+            'file_path': result,
+            'source_file': process_result['filename'],
+            'theme': theme
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -55,11 +55,68 @@ Antes de instalar Kofu, asegúrate de tener:
 
 ### 2.4 Variables de entorno (opcional)
 
-Si quieres usar APIs personalizadas, puedes crear un archivo `.env` en la carpeta raíz (usa `.env.example` como plantilla).
+Si quieres usar APIs personalizadas o integración con Ollama, puedes crear un archivo `.env` en la carpeta raíz (usa `.env.example` como plantilla).
 
 ---
 
-## 3. Uso básico
+## 3. Integración con Ollama (Razonamiento offline avanzado)
+
+Kofu tiene la capacidad de usar modelos de lenguaje locales via Ollama para un razonamiento más avanzado sin conexión a internet.
+
+### 3.1 ¿Qué es Ollama?
+
+Ollama es una herramienta que te permite ejecutar modelos de lenguaje como Llama 3, Mistral, y otros en tu propio ordenador.
+
+### 3.2 Instalar Ollama
+
+1. Ve a [ollama.com/download](https://ollama.com/download)
+2. Descarga e instala Ollama para Windows
+3. Abre una terminal y verifica que Ollama esté instalado:
+   ```bash
+   ollama --version
+   ```
+
+### 3.3 Descargar un modelo (Llama 3 recomendado)
+
+1. Abre una terminal
+2. Ejecuta el siguiente comando para descargar Llama 3 (8B, versión ligera):
+   ```bash
+   ollama pull llama3
+   ```
+3. Espera a que termine la descarga (puede tardar unos minutos, dependiendo de tu conexión)
+4. Verifica que el modelo esté instalado:
+   ```bash
+   ollama list
+   ```
+
+### 3.4 Configurar Kofu para usar Ollama
+
+1. Asegúrate de que el servidor de Ollama esté corriendo (se inicia automáticamente cuando instalas Ollama)
+2. Crea o edita el archivo `.env` en la carpeta raíz del proyecto
+3. Asegúrate de que la configuración sea la siguiente:
+   ```env
+   USE_OLLAMA=true
+   OLLAMA_BASE_URL=http://localhost:11434
+   ```
+
+### 3.5 Usar Kofu con Ollama
+
+1. Inicia el servidor de Kofu
+2. Abre la interfaz web
+3. ¡Listo! Kofu ahora usará Llama 3 para razonar de forma más avanzada
+
+Si Ollama no está disponible, Kofu usará automáticamente el razonamiento básico integrado (sin errores).
+
+### 3.6 Desactivar Ollama
+
+Si quieres desactivar Ollama temporalmente:
+1. Edita el archivo `.env`
+2. Cambia `USE_OLLAMA=true` por `USE_OLLAMA=false`
+3. Reinicia el servidor de Kofu
+
+---
+
+## 4. Uso básico
 
 ### 3.1 Iniciar Kofu
 

@@ -1,6 +1,7 @@
 from .web_researcher import WebResearcher
 from .office_agent import OfficeAgent
 from .reasoning_engine import ReasoningEngine, ChainOfThought
+from .ollama_engine import HybridReasoningEngine
 
 
 class KnowledgeBase:
@@ -38,11 +39,11 @@ class KnowledgeBase:
 
 
 class AIAssistant:
-    def __init__(self):
+    def __init__(self, use_ollama: bool = True):
         self.web_researcher = WebResearcher()
         self.office_agent = OfficeAgent()
         self.knowledge_base = KnowledgeBase()
-        self.reasoning_engine = ReasoningEngine()
+        self.reasoning_engine = HybridReasoningEngine(use_ollama=use_ollama)
         self.chain_of_thought = ChainOfThought()
 
     def process_request(self, user_input: str, show_thinking: bool = False):

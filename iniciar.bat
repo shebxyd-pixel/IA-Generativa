@@ -8,6 +8,19 @@ echo.
 echo Directorio actual: %~dp0
 echo.
 
+echo Comprobando Ollama...
+where ollama >nul 2>&1
+if %errorlevel% == 0 (
+    echo ✅ Ollama encontrado!
+    echo Iniciando Ollama en segundo plano...
+    start /b "" ollama serve
+    timeout /t 2 /nobreak >nul
+    echo ✅ Ollama listo!
+) else (
+    echo ⚠️ Ollama no encontrado. Usando razonamiento básico.
+)
+echo.
+
 cd /d "%~dp0backend"
 
 if not exist "server.py" (
@@ -20,18 +33,16 @@ if not exist "server.py" (
     exit /b 1
 )
 
-echo Iniciando servidor...
+echo Iniciando servidor Kofu...
 echo.
-echo Iniciando servidor en http://localhost:5000
-echo Esperando a que el servidor este listo...
+echo Servidor en http://localhost:5000
 echo.
-
-py server.py
-
-timeout /t 3 /nobreak >nul
 
 echo Abriendo web/index.html...
 start "" "%~dp0web\index.html"
+
+start /b "" py server.py
+timeout /t 3 /nobreak >nul
 
 echo.
 echo El servidor se esta ejecutando en segundo plano
@@ -39,6 +50,7 @@ echo Presiona cualquier tecla para detenerlo
 pause >nul
 
 taskkill /F /IM python.exe 2>nul
+taskkill /F /IM ollama.exe 2>nul
 
 echo.
 echo Servidor detenido.
