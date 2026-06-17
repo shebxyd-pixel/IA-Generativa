@@ -1,0 +1,1 @@
+En esta carpeta se encuentran todos los archivos de pruebas de mantenimiento y archivos cuyo uso solo se necesita para comprobar que todo funcione, en caso de que no seas un usuario con experiencia o que no le interese modificar la ia esta carpeta ignorala
