@@ -4,7 +4,6 @@ import re
 class TypoCorrector:
     def __init__(self):
         self.typo_dictionary = {
-            "pentesting": ["pentestig", "pentestin", "pentesing", "pentestng", "pentest"],
             "powerpoint": ["powerpoin", "powerpint", "powepoint", "powerpiont", "ppt"],
             "word": ["wrod", "wor", "wrd", "wordd"],
             "documento": ["documeto", "document", "documnto", "doc"],
@@ -43,7 +42,6 @@ class TypoCorrector:
         }
         
         self.common_phrases = {
-            "que es el pentesting": ["q es el pentesting", "ke es el pentesting", "que es pentesting", "que es el pentest"],
             "crear documento de word": ["crear doc de word", "hacer documento de word", "crear word", "crear documento word"],
             "crear presentacion de powerpoint": ["crear ppt", "hacer presentacion powerpoint", "crear presentacion ppt", "crear powerpoint"],
             "consejos de powerpoint": ["tips de powerpoint", "consejos ppt", "ayuda powerpoint"],
@@ -109,7 +107,6 @@ if __name__ == "__main__":
     corrector = TypoCorrector()
     
     test_texts = [
-        "hola, q es el pentestig?",
         "crea un doc de word por favor",
         "necesito una presentacion de powerpint",
         "dame consejos de ppt",
